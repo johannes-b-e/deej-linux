@@ -32,8 +32,9 @@ type SerialIO struct {
 
 	lastKnownNumSliders        int
 	currentSliderPercentValues []float32
+	sliderMoveConsumers        []chan SliderMoveEvent
 
-	sliderMoveConsumers []chan SliderMoveEvent
+	mediaController *MediaController
 }
 
 // SliderMoveEvent represents a single slider move captured by deej
@@ -43,11 +44,18 @@ type SliderMoveEvent struct {
 }
 
 var expectedLinePattern = regexp.MustCompile(`^\d{1,4}(\|\d{1,4})*\r\n$`)
+var expectedCommandPattern = regexp.MustCompile(`^CMD:(\w+)\r\n$`)
 
 // NewSerialIO creates a SerialIO instance that uses the provided deej
 // instance's connection info to establish communications with the arduino chip
 func NewSerialIO(deej *Deej, logger *zap.SugaredLogger) (*SerialIO, error) {
 	logger = logger.Named("serial")
+
+	// Initialize media controller (not fatal if playerctl isn't available)
+	mediaController, err := NewMediaController(logger)
+	if err != nil {
+		logger.Infow("Media controller not available", "error", err)
+	}
 
 	sio := &SerialIO{
 		deej:                deej,
@@ -56,6 +64,7 @@ func NewSerialIO(deej *Deej, logger *zap.SugaredLogger) (*SerialIO, error) {
 		connected:           false,
 		conn:                nil,
 		sliderMoveConsumers: []chan SliderMoveEvent{},
+		mediaController:     mediaController,
 	}
 
 	logger.Debug("Created serial i/o instance")
@@ -237,6 +246,12 @@ func (sio *SerialIO) readLine(logger *zap.SugaredLogger, reader *bufio.Reader) c
 
 func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 
+	// Check for media control commands first (e.g., "CMD:pause\r\n")
+	if expectedCommandPattern.MatchString(line) {
+		sio.handleMediaCommand(logger, line)
+		return
+	}
+
 	// this function receives an unsanitized line which is guaranteed to end with LF,
 	// but most lines will end with CRLF. it may also have garbage instead of
 	// deej-formatted values, so we must check for that! just ignore bad ones
@@ -312,5 +327,40 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 				consumer <- moveEvent
 			}
 		}
+	}
+}
+
+// handleMediaCommand processes media control commands from the Arduino
+func (sio *SerialIO) handleMediaCommand(logger *zap.SugaredLogger, line string) {
+	if sio.mediaController == nil {
+		logger.Debug("Media controller not available, ignoring command")
+		return
+	}
+
+	// Extract command name from "CMD:command" format
+	matches := expectedCommandPattern.FindStringSubmatch(line)
+	if len(matches) < 2 {
+		return
+	}
+
+	command := matches[1]
+	logger.Debugw("Received media command", "command", command)
+
+	// Execute the appropriate command
+	switch strings.ToLower(command) {
+	case "play":
+		sio.mediaController.Play()
+	case "pause":
+		sio.mediaController.Pause()
+	case "playpause", "play-pause", "toggle":
+		sio.mediaController.PlayPause()
+	case "next", "skip":
+		sio.mediaController.Next()
+	case "prev", "previous":
+		sio.mediaController.Previous()
+	case "stop":
+		sio.mediaController.Stop()
+	default:
+		logger.Warnw("Unknown media command", "command", command)
 	}
 }
