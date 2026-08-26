@@ -125,6 +125,35 @@ func (s *paSession) SetVolume(v float32) error {
 	return nil
 }
 
+func (s *paSession) GetMute() bool {
+	request := proto.GetSinkInputInfo{
+		SinkInputIndex: s.sinkInputIndex,
+	}
+	reply := proto.GetSinkInputInfoReply{}
+
+	if err := s.client.Request(&request, &reply); err != nil {
+		s.logger.Warnw("Failed to get session mute state", "error", err)
+		return false
+	}
+
+	return reply.Muted
+}
+
+func (s *paSession) SetMute(m bool) error {
+	request := &proto.SetSinkInputMute{
+		SinkInputIndex: s.sinkInputIndex,
+		Mute:           m,
+	}
+
+	if err := s.client.Request(request, nil); err != nil {
+		s.logger.Warnw("Failed to set session mute state", "error", err, "mute", m)
+		return fmt.Errorf("set session mute state: %w", err)
+	}
+
+	s.logger.Debug(fmt.Sprintf("Setting session %-20s mute to %t", s.Key(), m))
+	return nil
+}
+
 func (s *paSession) Release() {
 	s.logger.Debug("Releasing audio session")
 }
@@ -192,6 +221,58 @@ func (s *masterSession) SetVolume(v float32) error {
 
 	s.logger.Debug(fmt.Sprintf("Adjusting session %-20s volume to %.2f", s.Key(), v))
 
+	return nil
+}
+
+func (s *masterSession) GetMute() bool {
+	if s.isOutput {
+		request := proto.GetSinkInfo{
+			SinkIndex: s.streamIndex,
+		}
+		reply := proto.GetSinkInfoReply{}
+
+		if err := s.client.Request(&request, &reply); err != nil {
+			s.logger.Warnw("Failed to get session mute state", "error", err)
+			return false
+		}
+
+		return reply.Mute
+	}
+
+	request := proto.GetSourceInfo{
+		SourceIndex: s.streamIndex,
+	}
+	reply := proto.GetSourceInfoReply{}
+
+	if err := s.client.Request(&request, &reply); err != nil {
+		s.logger.Warnw("Failed to get session mute state", "error", err)
+		return false
+	}
+
+	return reply.Mute
+}
+
+func (s *masterSession) SetMute(m bool) error {
+	var request proto.RequestArgs
+
+	if s.isOutput {
+		request = &proto.SetSinkMute{
+			SinkIndex: s.streamIndex,
+			Mute:      m,
+		}
+	} else {
+		request = &proto.SetSourceMute{
+			SourceIndex: s.streamIndex,
+			Mute:        m,
+		}
+	}
+
+	if err := s.client.Request(request, nil); err != nil {
+		s.logger.Warnw("Failed to set session mute state", "error", err, "mute", m)
+		return fmt.Errorf("set session mute state: %w", err)
+	}
+
+	s.logger.Debug(fmt.Sprintf("Setting session %-20s mute to %t", s.Key(), m))
 	return nil
 }
 

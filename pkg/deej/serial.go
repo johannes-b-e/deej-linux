@@ -331,12 +331,29 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 }
 
 // handleMediaCommand processes media control commands from the Arduino
-func (sio *SerialIO) handleMediaCommand(logger *zap.SugaredLogger, line string) {
-	if sio.mediaController == nil {
-		logger.Debug("Media controller not available, ignoring command")
-		return
+func (sio *SerialIO) setMicMute(mute bool) error {
+	if sio.deej == nil || sio.deej.sessions == nil {
+		return fmt.Errorf("session map unavailable")
 	}
 
+	sessions, ok := sio.deej.sessions.get(inputSessionName)
+	if !ok || len(sessions) == 0 {
+		return fmt.Errorf("no mic session found")
+	}
+
+	for _, session := range sessions {
+		if session.GetMute() == mute {
+			continue
+		}
+		if err := session.SetMute(mute); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (sio *SerialIO) handleMediaCommand(logger *zap.SugaredLogger, line string) {
 	// Extract command name from "CMD:command" format
 	matches := expectedCommandPattern.FindStringSubmatch(line)
 	if len(matches) < 2 {
@@ -345,6 +362,38 @@ func (sio *SerialIO) handleMediaCommand(logger *zap.SugaredLogger, line string) 
 
 	command := matches[1]
 	logger.Debugw("Received media command", "command", command)
+
+	// Microphone mute controls do not depend on playerctl.
+	if strings.EqualFold(command, "mutemic") || strings.EqualFold(command, "togglemic") {
+		if sio.deej == nil || sio.deej.sessions == nil {
+			logger.Warnw("No session map available for microphone control", "command", command)
+			return
+		}
+
+		sessions, ok := sio.deej.sessions.get(inputSessionName)
+		if !ok || len(sessions) == 0 {
+			logger.Warnw("No microphone session found to toggle", "command", command)
+			return
+		}
+
+		newMuteState := !sessions[0].GetMute()
+		if err := sio.setMicMute(newMuteState); err != nil {
+			logger.Warnw("Failed to toggle microphone mute", "error", err)
+		}
+		return
+	}
+
+	if strings.EqualFold(command, "unmutemic") {
+		if err := sio.setMicMute(false); err != nil {
+			logger.Warnw("Failed to unmute microphone", "error", err)
+		}
+		return
+	}
+
+	if sio.mediaController == nil {
+		logger.Debug("Media controller not available, ignoring command")
+		return
+	}
 
 	// Execute the appropriate command
 	switch strings.ToLower(command) {

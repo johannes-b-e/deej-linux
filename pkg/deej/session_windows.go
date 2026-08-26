@@ -143,6 +143,23 @@ func (s *wcaSession) SetVolume(v float32) error {
 	return nil
 }
 
+func (s *wcaSession) GetMute() bool {
+	var muted bool
+	if err := s.control.GetMute(&muted); err != nil {
+		s.logger.Warnw("Failed to get session mute state", "error", err)
+		return false
+	}
+	return muted
+}
+
+func (s *wcaSession) SetMute(m bool) error {
+	if err := s.control.SetMute(m, s.eventCtx); err != nil {
+		s.logger.Warnw("Failed to set session mute state", "error", err, "mute", m)
+		return fmt.Errorf("set session mute state: %w", err)
+	}
+	return nil
+}
+
 func (s *wcaSession) Release() {
 	s.logger.Debug("Releasing audio session")
 
@@ -180,6 +197,23 @@ func (s *masterSession) SetVolume(v float32) error {
 
 	s.logger.Debug(fmt.Sprintf("Adjusting session %-20s volume to %.2f", s.Key(), v))
 
+	return nil
+}
+
+func (s *masterSession) GetMute() bool {
+	var muted bool
+	if err := s.volume.GetMute(&muted); err != nil {
+		s.logger.Warnw("Failed to get session mute state", "error", err)
+		return false
+	}
+	return muted
+}
+
+func (s *masterSession) SetMute(m bool) error {
+	if err := s.volume.SetMute(m, s.eventCtx); err != nil {
+		s.logger.Warnw("Failed to set session mute state", "error", err, "mute", m)
+		return fmt.Errorf("set session mute state: %w", err)
+	}
 	return nil
 }
 
