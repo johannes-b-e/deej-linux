@@ -315,3 +315,29 @@ func roundedMask(w, h, radius int) *image.Alpha {
 
 	return mask
 }
+
+// RunPositionUpdates periodically sends the current playback position and
+// mic-mute status to the display, independent of whether the track itself
+// has changed. Intended to be started via `go m.RunPositionUpdates()`.
+func (m *PlaybackMonitor) RunPositionUpdates(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		position, err := m.player.currentPosition()
+		if err != nil {
+			if m.logger != nil {
+				m.logger.Warnw("Failed to read MPRIS position", "error", err)
+			}
+			continue
+		}
+
+		micMuted := m.serial.IsMicMuted()
+
+		if err := m.serial.SendUpdate(int(position), micMuted); err != nil {
+			if m.logger != nil {
+				m.logger.Warnw("Failed to send position update to display", "error", err)
+			}
+		}
+	}
+}

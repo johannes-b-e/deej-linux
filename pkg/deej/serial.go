@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jacobsa/go-serial/serial"
@@ -21,6 +22,7 @@ import (
 const (
 	frameTypeMetadata = byte(1)
 	frameTypeImage    = byte(2)
+	frameTypeUpdate   = byte(3)
 	imageChunkSize    = 512
 )
 
@@ -38,6 +40,10 @@ type SerialIO struct {
 	conn        io.ReadWriteCloser
 
 	okChannel chan struct{} // signaled when an "OK" line arrives from the esp32
+
+	// transfer protection: set while a cover transfer is active
+	transferMu  sync.Mutex
+	transfering bool
 
 	lastKnownNumSliders        int
 	currentSliderPercentValues []float32
@@ -133,7 +139,7 @@ func (sio *SerialIO) Start() error {
 	go func() {
 		connReader := bufio.NewReader(sio.conn)
 		lineChannel := sio.readLine(namedLogger, connReader)
-
+		sio.conn.Write([]byte{0xFF})	// notify the microcontroller that deej connected
 		for {
 			select {
 			case <-sio.stopChannel:
@@ -408,7 +414,14 @@ func (sio *SerialIO) SendMetadata(title, artist string, durationSeconds int) err
 // chunk before sending the next one - matching SerialReceiver's
 // PackageType 2 handling.
 func (sio *SerialIO) SendCover(data []byte) error {
+	// mark transfer as active to prevent status updates during image upload
+	sio.transferMu.Lock()
+	sio.transfering = true
+	sio.transferMu.Unlock()
 	if err := sio.writeFrameHeader(frameTypeImage, len(data)); err != nil {
+		sio.transferMu.Lock()
+		sio.transfering = false
+		sio.transferMu.Unlock()
 		return err
 	}
 
@@ -422,10 +435,50 @@ func (sio *SerialIO) SendCover(data []byte) error {
 			return fmt.Errorf("write image chunk: %w", err)
 		}
 		if err := sio.waitForOK(2 * time.Second); err != nil {
-			return fmt.Errorf("chunk %d-%d: %w", offset, end, err)
+			// if an OK wasn't received, still try to continue but log
+			sio.logger.Warnw("No OK received for image chunk", "range", fmt.Sprintf("%d-%d", offset, end), "error", err)
 		}
 	}
+	// mark transfer finished
+	sio.transferMu.Lock()
+	sio.transfering = false
+	sio.transferMu.Unlock()
 	return nil
+}
+
+// SendUpdate sends a lightweight playback-position + mic-mute update to the
+// display, formatted as "timestamp_seconds|mic_muted(1/0)" to match
+// SerialReceiver's PackageType 3 parsing.
+func (sio *SerialIO) SendUpdate(timestampSeconds int, micMuted bool) error {
+	// Do not send status updates while a cover transfer is active.
+	sio.transferMu.Lock()
+	transferring := sio.transfering
+	sio.transferMu.Unlock()
+	if transferring {
+		if sio.deej != nil && sio.deej.Verbose() {
+			sio.logger.Debugw("Dropping SendUpdate while cover transfer active")
+		}
+		return nil
+	}
+	muteFlag := 0
+	if micMuted {
+		muteFlag = 1
+	}
+	payload := []byte(fmt.Sprintf("%d|%d", timestampSeconds, muteFlag))
+	return sio.writeFrame(frameTypeUpdate, payload)
+}
+
+// IsMicMuted reports whether the input (microphone) session is currently
+// muted. Returns false if no mic session is found.
+func (sio *SerialIO) IsMicMuted() bool {
+	if sio.deej == nil || sio.deej.sessions == nil {
+		return false
+	}
+	sessions, ok := sio.deej.sessions.get(inputSessionName)
+	if !ok || len(sessions) == 0 {
+		return false
+	}
+	return sessions[0].GetMute()
 }
 
 // handleMediaCommand processes media control commands from the Arduino

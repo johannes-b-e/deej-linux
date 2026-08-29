@@ -214,4 +214,25 @@ func (c *mprisClient) currentMetadata() (displayMetadata, error) {
 	}
 
 	return meta, nil
+
+}
+
+// currentPosition returns the player's current playback position, in
+// seconds. Position lives at the top level of the Player interface's
+// properties (unlike Title/Artist/Album, which are nested inside Metadata).
+func (c *mprisClient) currentPosition() (int64, error) {
+	obj := c.bus.Object(c.name, "/org/mpris/MediaPlayer2")
+
+	var props map[string]dbus.Variant
+	if err := obj.Call("org.freedesktop.DBus.Properties.GetAll", 0, "org.mpris.MediaPlayer2.Player").Store(&props); err != nil {
+		return 0, fmt.Errorf("read player properties: %w", err)
+	}
+
+	if v, ok := props["Position"]; ok {
+		if n, ok := v.Value().(int64); ok {
+			return n / 1000000, nil // microseconds -> seconds
+		}
+	}
+
+	return 0, nil
 }

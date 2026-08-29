@@ -114,6 +114,7 @@ func (d *Deej) Initialize() error {
 
 	if d.playback != nil {
 		go d.playback.Run()
+		go d.playback.RunPositionUpdates(1 * time.Second)
 	}
 
 	// run in main thread while waiting on ctrl+C
