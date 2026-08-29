@@ -236,3 +236,21 @@ func (c *mprisClient) currentPosition() (int64, error) {
 
 	return 0, nil
 }
+
+// IsPaused returns true if the current player reports a "Paused" playback
+// status. Returns an error if the player properties could not be read.
+func (c *mprisClient) IsPaused() (bool, error) {
+	obj := c.bus.Object(c.name, "/org/mpris/MediaPlayer2")
+
+	var props map[string]dbus.Variant
+	if err := obj.Call("org.freedesktop.DBus.Properties.GetAll", 0, "org.mpris.MediaPlayer2.Player").Store(&props); err != nil {
+		return false, fmt.Errorf("read player properties: %w", err)
+	}
+
+	if v, ok := props["PlaybackStatus"]; ok {
+		if s, ok := v.Value().(string); ok {
+			return s == "Paused", nil
+		}
+	}
+	return false, nil
+}

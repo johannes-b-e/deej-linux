@@ -449,7 +449,7 @@ func (sio *SerialIO) SendCover(data []byte) error {
 // SendUpdate sends a lightweight playback-position + mic-mute update to the
 // display, formatted as "timestamp_seconds|mic_muted(1/0)" to match
 // SerialReceiver's PackageType 3 parsing.
-func (sio *SerialIO) SendUpdate(timestampSeconds int, micMuted bool) error {
+func (sio *SerialIO) SendUpdate(timestampSeconds int, paused bool, micMuted bool) error {
 	// Do not send status updates while a cover transfer is active.
 	sio.transferMu.Lock()
 	transferring := sio.transfering
@@ -464,7 +464,11 @@ func (sio *SerialIO) SendUpdate(timestampSeconds int, micMuted bool) error {
 	if micMuted {
 		muteFlag = 1
 	}
-	payload := []byte(fmt.Sprintf("%d|%d", timestampSeconds, muteFlag))
+	pauseFlag := 0
+	if paused {
+		pauseFlag = 1
+	}
+	payload := []byte(fmt.Sprintf("%d|%d|%d", timestampSeconds, pauseFlag, muteFlag))
 	return sio.writeFrame(frameTypeUpdate, payload)
 }
 

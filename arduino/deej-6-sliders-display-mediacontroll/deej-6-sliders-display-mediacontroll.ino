@@ -1,0 +1,162 @@
+#include <TFT_eSPI.h>
+#include <TJpg_Decoder.h>
+#include <SPIFFS.h>
+
+//#include "wifi_manager.h"
+#include "config.h"
+#include "SerialReceiver.h"
+#include "UserInterface.h"
+
+int poti[6] = {33, 32, 35, 34, 39, 36};
+int NumPotis = 6;
+
+int buttons[4] = {19, 21, 16, 17};
+int NumButtons = 4;
+bool pressed[4] = {false, false, false, false};
+
+String buttonCMD[4] = {
+  "CMD:mutemic",
+  "CMD:prev",
+  "CMD:playpause",
+  "CMD:next"
+};
+
+const int BUTTON_PLAYPAUSE = 16;
+const int BUTTON_NEXT = 17;
+const int BUTTON_MUTEMIC = 19;
+const int BUTTON_PREVIOUS = 21;
+
+
+int prevValue = 0;
+
+SerialReceiver receiver;
+UserInterface ui;
+
+void onErrorCallback(hardwareSerial_error_t error) {
+    Serial.printf("UART Error: %d\n", error);
+}
+
+void reset() {
+  // 1. Copy default_cover into the active cover:
+  const char* src = "/default_cover.jpg";
+  const char* dst = "/cover.jpg";
+  File srcFile = SPIFFS.open(src, FILE_READ);
+  if (!srcFile) return;
+
+  if (SPIFFS.exists(dst)) {
+      SPIFFS.remove(dst);
+  }
+
+  File dstFile = SPIFFS.open(dst, FILE_WRITE);
+  if (!dstFile) {
+      srcFile.close();
+      return;
+  }
+
+  uint8_t buf[256];
+  size_t n;
+  while ((n = srcFile.read(buf, sizeof(buf))) > 0) {
+      dstFile.write(buf, n);
+  }
+
+  srcFile.close();
+  dstFile.close();
+}
+
+// ---------- Setup ----------
+void setup() {
+
+  int buffersize = Serial.setRxBufferSize(16384);
+  Serial.begin(921600);
+  Serial.print("Buffersize set to ");
+  Serial.println(buffersize);
+
+  Serial.onReceiveError(onErrorCallback);
+
+  SPIFFS.begin(true);
+  reset();  // load the default cover image
+
+  ui.begin();
+  receiver.begin();
+
+
+  ui.Update();  //Update UI with defaults
+  for(int i = 0; i < NumPotis; i++){
+    analogSetPinAttenuation(poti[i], ADC_11db);
+  }
+
+  pinMode(BUTTON_PLAYPAUSE, INPUT_PULLUP);
+  pinMode(BUTTON_NEXT, INPUT_PULLUP);
+  pinMode(BUTTON_MUTEMIC, INPUT_PULLUP);
+  pinMode(BUTTON_PREVIOUS, INPUT_PULLUP);
+}
+
+float filtered[6] = {0};
+int last[6] = {0};
+
+int readSlider(int index, int raw) {
+
+    filtered[index] =
+        filtered[index] * 0.85 +
+        raw * 0.15;
+
+    int value = (int)(filtered[index] / 4);
+
+    if (abs(value - last[index]) > 4) {
+        last[index] = value;
+    }
+
+    return last[index];
+}
+
+void updateButtons() {
+  for (int i = 0; i < NumButtons; i++) {
+    if (digitalRead(buttons[i]) == LOW && !pressed[i]) {
+      Serial.println(buttonCMD[i]);
+      pressed[i] = true;
+    }
+    else if (digitalRead(buttons[i]) != LOW && pressed[i]) {
+      pressed[i] = false;
+    }
+  }
+}
+
+
+String oldDebug;
+// ---------- Loop ----------
+void loop() {
+  if(receiver.resetTriggered())
+  {
+    reset();
+  }
+  receiver.update();
+  String debug = "";
+  for (int i = 0; i < NumPotis; i++) {
+    debug += readSlider(i, analogRead(poti[i]));
+
+    if (i < NumPotis - 1) {
+      debug += "|";
+    }
+  }
+  
+  // Only send something if meaningful change as to not over-spam the serial-connection, or alternativly if a new Deej client initially connected
+  if(debug != oldDebug || receiver.DeejJustConnected()){
+    Serial.println(debug);
+    oldDebug = debug;
+  }
+  
+  if (receiver.hasNewSong()) {
+    Serial.println("New song received!");
+
+    ui.Update(
+      receiver.getTitle(),
+      receiver.getArtist(),
+      receiver.getDuration(),
+      true
+    );
+  }
+  
+
+  //ui.UpdateProgessBar(0);
+  updateButtons();
+}

@@ -333,8 +333,16 @@ func (m *PlaybackMonitor) RunPositionUpdates(interval time.Duration) {
 		}
 
 		micMuted := m.serial.IsMicMuted()
+		paused := false
+		if m.player != nil {
+			if p, err := m.player.IsPaused(); err == nil {
+				paused = p
+			} else if m.logger != nil {
+				m.logger.Debugw("Failed to read playback paused state", "error", err)
+			}
+		}
 
-		if err := m.serial.SendUpdate(int(position), micMuted); err != nil {
+		if err := m.serial.SendUpdate(int(position), paused, micMuted); err != nil {
 			if m.logger != nil {
 				m.logger.Warnw("Failed to send position update to display", "error", err)
 			}
