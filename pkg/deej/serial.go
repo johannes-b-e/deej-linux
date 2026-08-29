@@ -2,6 +2,7 @@ package deej
 
 import (
 	"bufio"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,12 @@ import (
 	"github.com/omriharel/deej/pkg/deej/util"
 )
 
+const (
+	frameTypeMetadata = byte(1)
+	frameTypeImage    = byte(2)
+	imageChunkSize    = 512
+)
+
 // SerialIO provides a deej-aware abstraction layer to managing serial I/O
 type SerialIO struct {
 	comPort  string
@@ -29,6 +36,8 @@ type SerialIO struct {
 	connected   bool
 	connOptions serial.OpenOptions
 	conn        io.ReadWriteCloser
+
+	okChannel chan struct{} // signaled when an "OK" line arrives from the esp32
 
 	lastKnownNumSliders        int
 	currentSliderPercentValues []float32
@@ -63,6 +72,7 @@ func NewSerialIO(deej *Deej, logger *zap.SugaredLogger) (*SerialIO, error) {
 		stopChannel:         make(chan bool, 4),
 		connected:           false,
 		conn:                nil,
+		okChannel:           make(chan struct{}, 8),
 		sliderMoveConsumers: []chan SliderMoveEvent{},
 		mediaController:     mediaController,
 	}
@@ -131,9 +141,9 @@ func (sio *SerialIO) Start() error {
 			case line := <-lineChannel:
 				if line == "BORKED" {
 					sio.close(namedLogger)
-					sio.logger.Info("RX bork signal from reader. Signalling stop channel...");
+					sio.logger.Info("RX bork signal from reader. Signalling stop channel...")
 					sio.stopChannel <- false
-					sio.logger.Info("Stop channel signalled with a retry.");
+					sio.logger.Info("Stop channel signalled with a retry.")
 					os.Exit(1)
 				} else {
 					sio.handleLine(namedLogger, line)
@@ -246,6 +256,18 @@ func (sio *SerialIO) readLine(logger *zap.SugaredLogger, reader *bufio.Reader) c
 
 func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 
+	// the esp32 sends "OK\n" after consuming each image chunk (firmware must
+	// terminate this with \n for line-based reading to work at all - see
+	// SerialReceiver.cpp's Serial.write("OK") call).
+	trimmed := strings.TrimRight(line, "\r\n")
+	if trimmed == "OK" {
+		select {
+		case sio.okChannel <- struct{}{}:
+		default:
+		}
+		return
+	}
+
 	// Check for media control commands first (e.g., "CMD:pause\r\n")
 	if expectedCommandPattern.MatchString(line) {
 		sio.handleMediaCommand(logger, line)
@@ -328,6 +350,82 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 			}
 		}
 	}
+}
+
+// writeFrameHeader writes the display-protocol frame header (0xAA 0x55 +
+// type byte + little-endian uint32 length), matching what SerialReceiver's
+// WAIT_AA state expects.
+func (sio *SerialIO) writeFrameHeader(frameType byte, length int) error {
+	if !sio.connected || sio.conn == nil {
+		return fmt.Errorf("serial not connected")
+	}
+
+	lenBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(lenBytes, uint32(length))
+
+	for _, chunk := range [][]byte{{0xAA, 0x55}, {frameType}, lenBytes} {
+		if _, err := sio.conn.Write(chunk); err != nil {
+			return fmt.Errorf("write frame header: %w", err)
+		}
+	}
+	return nil
+}
+
+// writeFrame writes a complete single-shot frame (header + payload) - used
+// for metadata, where the firmware reads the whole payload in one shot
+// rather than chunk-by-chunk.
+func (sio *SerialIO) writeFrame(frameType byte, payload []byte) error {
+	if err := sio.writeFrameHeader(frameType, len(payload)); err != nil {
+		return err
+	}
+	if _, err := sio.conn.Write(payload); err != nil {
+		return fmt.Errorf("write frame payload: %w", err)
+	}
+	return nil
+}
+
+// waitForOK blocks until an "OK" acknowledgment has been observed coming
+// from the esp32, or the given timeout elapses.
+func (sio *SerialIO) waitForOK(timeout time.Duration) error {
+	select {
+	case <-sio.okChannel:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("timed out waiting for OK from esp32")
+	}
+}
+
+// SendMetadata sends the currently-playing track's metadata to the display,
+// formatted as "title|artist|duration_seconds" to match SerialReceiver's
+// PackageType 1 parsing.
+func (sio *SerialIO) SendMetadata(title, artist string, durationSeconds int) error {
+	payload := []byte(fmt.Sprintf("%s|%s|%d", title, artist, durationSeconds))
+	return sio.writeFrame(frameTypeMetadata, payload)
+}
+
+// SendCover sends JPEG-encoded cover art to the display in imageChunkSize
+// chunks, waiting for an "OK" acknowledgment from the esp32 after each
+// chunk before sending the next one - matching SerialReceiver's
+// PackageType 2 handling.
+func (sio *SerialIO) SendCover(data []byte) error {
+	if err := sio.writeFrameHeader(frameTypeImage, len(data)); err != nil {
+		return err
+	}
+
+	for offset := 0; offset < len(data); offset += imageChunkSize {
+		end := offset + imageChunkSize
+		if end > len(data) {
+			end = len(data)
+		}
+
+		if _, err := sio.conn.Write(data[offset:end]); err != nil {
+			return fmt.Errorf("write image chunk: %w", err)
+		}
+		if err := sio.waitForOK(2 * time.Second); err != nil {
+			return fmt.Errorf("chunk %d-%d: %w", offset, end, err)
+		}
+	}
+	return nil
 }
 
 // handleMediaCommand processes media control commands from the Arduino

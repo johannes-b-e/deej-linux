@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -25,6 +26,7 @@ type Deej struct {
 	config   *CanonicalConfig
 	serial   *SerialIO
 	sessions *sessionMap
+	playback *PlaybackMonitor
 
 	stopChannel chan bool
 	version     string
@@ -77,6 +79,15 @@ func NewDeej(logger *zap.SugaredLogger, verbose bool) (*Deej, error) {
 
 	d.sessions = sessions
 
+	if playback, err := NewPlaybackMonitor(d.serial, 2*time.Second, logger); err == nil {
+		d.playback = playback
+		logger.Info("Playback monitor initialized")
+	} else {
+		logger.Warnw("Playback monitor unavailable", "error", err)
+	}
+
+
+
 	logger.Debug("Created deej instance")
 
 	return d, nil
@@ -100,6 +111,10 @@ func (d *Deej) Initialize() error {
 
 	// run without tray cuz the dependencies are cancer
 	d.logger.Debugw("Running without tray icon", "reason", "envvar set")
+
+	if d.playback != nil {
+		go d.playback.Run()
+	}
 
 	// run in main thread while waiting on ctrl+C
 	d.setupInterruptHandler()
@@ -198,6 +213,12 @@ func (d *Deej) stop() error {
 
 	d.config.StopWatchingConfigFile()
 	d.serial.Stop()
+
+	if d.playback != nil {
+		if err := d.playback.Close(); err != nil {
+			d.logger.Warnw("Failed to close playback monitor", "error", err)
+		}
+	}
 
 	// release the session map
 	if err := d.sessions.release(); err != nil {
