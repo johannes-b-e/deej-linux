@@ -1,27 +1,26 @@
 # github.com/fsnotify/fsnotify v1.4.9
-## explicit
+## explicit; go 1.13
 github.com/fsnotify/fsnotify
 # github.com/gen2brain/beeep v0.0.0-20200420150314-13046a26d502
-## explicit
+## explicit; go 1.14
 github.com/gen2brain/beeep
-# github.com/getlantern/ops v0.0.0-20200403153110-8476b16edcd6
-## explicit
-# github.com/getlantern/systray v0.0.0-20200324212034-d3ab4fd25d99
-## explicit
 # github.com/go-ole/go-ole v1.2.4
-## explicit
+## explicit; go 1.12
 github.com/go-ole/go-ole
 # github.com/go-toast/toast v0.0.0-20190211030409-01e6764cf0a4
+## explicit
 github.com/go-toast/toast
 # github.com/godbus/dbus v4.1.0+incompatible
+## explicit
 github.com/godbus/dbus
 # github.com/godbus/dbus/v5 v5.2.2
-## explicit
+## explicit; go 1.20
 github.com/godbus/dbus/v5
 # github.com/gopherjs/gopherjs v0.0.0-20200217142428-fce0ec30dd00
 ## explicit
 github.com/gopherjs/gopherjs/js
 # github.com/gopherjs/gopherwasm v1.1.0
+## explicit
 github.com/gopherjs/gopherwasm/js
 # github.com/hashicorp/hcl v1.0.0
 ## explicit
@@ -39,52 +38,62 @@ github.com/hashicorp/hcl/json/token
 ## explicit
 github.com/jacobsa/go-serial/serial
 # github.com/jfreymuth/pulse v0.0.0-20200608153616-84b2d752b9d4
-## explicit
+## explicit; go 1.12
 github.com/jfreymuth/pulse/proto
-# github.com/lxn/walk v0.0.0-20191128110447-55ccb3a9f5c1
-## explicit
 # github.com/lxn/win v0.0.0-20191128105842-2da648fda5b4
-## explicit
+## explicit; go 1.12
 github.com/lxn/win
 # github.com/magiconair/properties v1.8.1
+## explicit
 github.com/magiconair/properties
 # github.com/mitchellh/go-ps v1.0.0
-## explicit
+## explicit; go 1.13
 github.com/mitchellh/go-ps
 # github.com/mitchellh/mapstructure v1.1.2
+## explicit
 github.com/mitchellh/mapstructure
 # github.com/moutend/go-wca v0.1.2-0.20190422112502-0fa027b3d89a
 ## explicit
 github.com/moutend/go-wca
 # github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d
+## explicit
 github.com/nu7hatch/gouuid
 # github.com/pelletier/go-toml v1.2.0
+## explicit
 github.com/pelletier/go-toml
 # github.com/spf13/afero v1.1.2
+## explicit
 github.com/spf13/afero
 github.com/spf13/afero/mem
 # github.com/spf13/cast v1.3.0
+## explicit
 github.com/spf13/cast
 # github.com/spf13/jwalterweatherman v1.0.0
+## explicit
 github.com/spf13/jwalterweatherman
 # github.com/spf13/pflag v1.0.3
+## explicit
 github.com/spf13/pflag
 # github.com/spf13/viper v1.7.1
-## explicit
+## explicit; go 1.12
 github.com/spf13/viper
 # github.com/subosito/gotenv v1.2.0
+## explicit
 github.com/subosito/gotenv
 # github.com/tadvi/systray v0.0.0-20190226123456-11a2b8fa57af
+## explicit
 github.com/tadvi/systray
 # github.com/thoas/go-funk v0.7.0
-## explicit
+## explicit; go 1.13
 github.com/thoas/go-funk
 # go.uber.org/atomic v1.6.0
+## explicit; go 1.13
 go.uber.org/atomic
 # go.uber.org/multierr v1.5.0
+## explicit; go 1.12
 go.uber.org/multierr
 # go.uber.org/zap v1.15.0
-## explicit
+## explicit; go 1.13
 go.uber.org/zap
 go.uber.org/zap/buffer
 go.uber.org/zap/internal/bufferpool
@@ -92,13 +101,17 @@ go.uber.org/zap/internal/color
 go.uber.org/zap/internal/exit
 go.uber.org/zap/zapcore
 # golang.org/x/sys v0.27.0
+## explicit; go 1.18
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 golang.org/x/sys/windows/registry
 # golang.org/x/text v0.3.2
+## explicit
 golang.org/x/text/transform
 golang.org/x/text/unicode/norm
 # gopkg.in/ini.v1 v1.51.0
+## explicit
 gopkg.in/ini.v1
 # gopkg.in/yaml.v2 v2.2.4
+## explicit
 gopkg.in/yaml.v2
