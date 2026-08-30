@@ -62,6 +62,7 @@ void setup() {
   ui.begin();
 
   int buffersize = Serial.setRxBufferSize(16384);
+  Serial.setTxBufferSize(16384);
   Serial.begin(921600);
   Serial.print("Buffersize set to ");
   Serial.println(buffersize);
@@ -148,7 +149,12 @@ void loop() {
       receiver.getDuration(),
       true
     );
-    ui.drawAlbum("/cover.jpg");
+    bool pom = receiver.pausedOrmuted();
+    Serial.print("DBG:main loop hasNewSong, pausedOrmuted="); Serial.println(pom);
+    if (!pom) {
+      Serial.println("DBG:main loop drawing /cover.jpg");
+      UserInterface::instance->drawAlbum("/cover.jpg");
+    }
   }
   
 

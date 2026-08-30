@@ -31,7 +31,7 @@ void UserInterface::Update(String newTitle, String newArtist, int newDuration, b
   artist = newArtist;
   duration = newDuration;
 
-  tft.fillScreen(BG_COLOR);
+  //tft.fillScreen(BG_COLOR);
 
   tft.setTextColor(SUBTEXT_COLOR, BG_COLOR);
   tft.drawString("Now Playing", TEXT_X, PADDING + 5, 2);

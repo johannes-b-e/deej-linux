@@ -1,21 +1,17 @@
 #include "SerialReceiver.h"
 #include "UserInterface.h"
 
-#define MAX_PAYLOAD 4096  // enough for 730B test
-
 uint8_t state = 0;
 
 uint8_t type = 0;
 uint32_t len = 0;
 uint32_t idx = 0;
 
-int readDataTimeoutMs = 5000;
+int readDataTimeoutMs = 1000;
 int readDataStartedAt = 0;
 
 bool paused = false;
 bool muted = false;
-
-uint8_t payload[MAX_PAYLOAD];
 
 File imgFile;
 
@@ -69,9 +65,20 @@ void SerialReceiver::update() {
     //Serial.println("Header OK");
     //Serial.println(length); // gets misinterpreted as a single-slider value
 
-    if (!imageFile && PackageType == 2) {
+    // Start a fresh image file for every cover package
+    if (PackageType == 2) {
+      if (imageFile) {
+          imageFile.close();
+      }
+
       LittleFS.remove("/cover.jpg");
       imageFile = LittleFS.open("/cover.jpg", FILE_WRITE);
+
+      if (!imageFile) {
+          Serial.println("IMAGE_OPEN_FAILED");
+          state = WAIT_AA;
+          return;
+      }
     }
 
     received = 0;   // reset the counter on how many chunks are received
@@ -95,12 +102,16 @@ void SerialReceiver::update() {
 
     if (Serial.available() == 0) return;
     if(PackageType == 2){
-      // the serial-buffer is limited, which is why we send the image in chunks of BUF_SIZE (for example 512 bytes)
-      int n = Serial.readBytes(buffer, BUF_SIZE);
+
+      // Receive the image in chunks. The final chunk may be smaller than BUF_SIZE.
+      size_t remaining = length - received;
+      size_t toRead = min((size_t)BUF_SIZE, remaining); // if remaining < bufsize, only read remaining, otherwise readBytes will timeout
+      int n = Serial.readBytes(buffer, toRead);
 
       // literally just write these bytes to our cover image file
       imageFile.write(buffer, n);
       received += n;  // keep track on how many bytes where received
+      
       Serial.write("OK\n"); // give the ok for the next chunk to be send
       readDataStartedAt = millis();   // reset the timeout after each successfully received chunk.
 
@@ -146,18 +157,18 @@ void SerialReceiver::update() {
       if (UserInterface::instance) {
         UserInterface::instance->UpdateProgessBar(timestamp);
         // Hierarchy: Muted -> paused -> normal-cover
-        const char* album =
-        mutestatus == 1 ? "/muted.jpg" :
-        pausestatus == 1 ? "/paused.jpg" :
-                          "/cover.jpg";
-
         if (mutestatus != muted || pausestatus != paused) {
-          UserInterface::instance->drawAlbum(album);
           muted = mutestatus;
           paused = pausestatus;
+
+          UserInterface::instance->drawAlbum(
+              muted ? "/muted.jpg" :
+              paused ? "/paused.jpg" :
+                      "/cover.jpg"
+          );
         }
       }
-      
+
       state = WAIT_AA;    // reset the receiver
     }
   }

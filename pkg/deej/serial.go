@@ -23,7 +23,7 @@ const (
 	frameTypeMetadata = byte(1)
 	frameTypeImage    = byte(2)
 	frameTypeUpdate   = byte(3)
-	imageChunkSize    = 4096
+	imageChunkSize    = 128
 )
 
 // SerialIO provides a deej-aware abstraction layer to managing serial I/O
@@ -251,6 +251,11 @@ func (sio *SerialIO) readLine(logger *zap.SugaredLogger, reader *bufio.Reader) c
 			if sio.deej.Verbose() {
 				logger.Debugw("Read new line", "line", line)
 			}
+
+			// Always emit raw lines from the ESP as ESP-DEBUG so they appear
+			// in the console for troubleshooting. Use Info level to ensure
+			// visibility regardless of verbose flag.
+			logger.Infow("ESP-DEBUG", "raw", line)
 
 			// deliver the line to the channel
 			ch <- line

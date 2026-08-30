@@ -21,7 +21,7 @@ class SerialReceiver {
     void handleFrame(uint8_t type, uint8_t* data, int len);
     void processBuffer();
 
-    static const int BUF_SIZE = 4096;
+    static const int BUF_SIZE = 128;
 
     File imageFile;
 
@@ -38,4 +38,5 @@ class SerialReceiver {
 
     uint32_t received = 0;
     uint32_t length = 0;
+    uint32_t lastChunkLengths = 0;
 };
