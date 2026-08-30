@@ -26,7 +26,7 @@ import (
 const (
 	coverSize        = 230 // target width/height of the cover art sent to the display
 	coverRadius      = 25  // corner rounding radius, in pixels
-	coverJPEGQuality = 85
+	coverJPEGQuality = 70
 )
 
 // PlaybackMonitor polls MPRIS for the currently playing track, detects
@@ -129,13 +129,16 @@ func (m *PlaybackMonitor) Run() {
 		}
 
 		if cover != nil {
-			if err := m.serial.SendCover(cover); err != nil {
-				if m.logger != nil {
+			if m.logger != nil {
+				start := time.Now()
+				if err := m.serial.SendCover(cover); err != nil {
 					m.logger.Warnw("Failed to send cover art to display", "error", err)
+					// metadata already sent successfully - still mark this
+					// track as "sent" so we don't keep retrying the whole
+					// thing every poll; only the image failed
+				} else {
+					m.logger.Infof("Sent image data (%.3fKB) in %s", float64(len(cover))/1024.0, time.Since(start))
 				}
-				// metadata already sent successfully - still mark this
-				// track as "sent" so we don't keep retrying the whole
-				// thing every poll; only the image failed
 			}
 		}
 

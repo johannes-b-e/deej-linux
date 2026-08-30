@@ -23,7 +23,7 @@ const (
 	frameTypeMetadata = byte(1)
 	frameTypeImage    = byte(2)
 	frameTypeUpdate   = byte(3)
-	imageChunkSize    = 512
+	imageChunkSize    = 4096
 )
 
 // SerialIO provides a deej-aware abstraction layer to managing serial I/O

@@ -5,7 +5,7 @@ import threading
 
 ser = serial.Serial("/dev/ttyUSB0", 921600)
 
-CHUNK_SIZE = 512
+CHUNK_SIZE = 4096
 
 def wait_for_ok(timeout=2.0):
     ser.timeout = 0.001
@@ -79,7 +79,7 @@ data = {
 }
 
 send_meta(data)
-send_image("default_cover.jpg")
+send_image("cover.jpg")
 
 
 while True:

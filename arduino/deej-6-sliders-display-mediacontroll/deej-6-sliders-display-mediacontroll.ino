@@ -1,6 +1,6 @@
 #include <TFT_eSPI.h>
 #include <TJpg_Decoder.h>
-#include <SPIFFS.h>
+#include <LittleFS.h>
 
 //#include "wifi_manager.h"
 #include "config.h"
@@ -36,35 +36,30 @@ void onErrorCallback(hardwareSerial_error_t error) {
     Serial.printf("UART Error: %d\n", error);
 }
 
-void reset() {
-  // 1. Copy default_cover into the active cover:
-  const char* src = "/default_cover.jpg";
-  const char* dst = "/cover.jpg";
-  File srcFile = SPIFFS.open(src, FILE_READ);
-  if (!srcFile) return;
-
-  if (SPIFFS.exists(dst)) {
-      SPIFFS.remove(dst);
+void initFS(){
+  if (!LittleFS.begin(true)) {
+    Serial.println("DBG:LittleFS mount FAILED even after format attempt");
+  } else {
+      Serial.println("DBG:LittleFS mounted OK");
   }
 
-  File dstFile = SPIFFS.open(dst, FILE_WRITE);
-  if (!dstFile) {
-      srcFile.close();
-      return;
+  Serial.println("DBG:--- LittleFS contents ---");
+  File root = LittleFS.open("/");
+  File file = root.openNextFile();
+  while (file) {
+      Serial.print("DBG:file=");
+      Serial.print(file.name());
+      Serial.print(" size=");
+      Serial.println(file.size());
+      file = root.openNextFile();
   }
-
-  uint8_t buf[256];
-  size_t n;
-  while ((n = srcFile.read(buf, sizeof(buf))) > 0) {
-      dstFile.write(buf, n);
-  }
-
-  srcFile.close();
-  dstFile.close();
+  Serial.println("DBG:--- end ---");
 }
 
 // ---------- Setup ----------
 void setup() {
+
+  ui.begin();
 
   int buffersize = Serial.setRxBufferSize(16384);
   Serial.begin(921600);
@@ -73,14 +68,13 @@ void setup() {
 
   Serial.onReceiveError(onErrorCallback);
 
-  SPIFFS.begin(true);
-  reset();  // load the default cover image
+  initFS();
 
-  ui.begin();
   receiver.begin();
 
-
   ui.Update();  //Update UI with defaults
+  ui.drawAlbum("/default_cover.jpg");
+
   for(int i = 0; i < NumPotis; i++){
     analogSetPinAttenuation(poti[i], ADC_11db);
   }
@@ -127,7 +121,7 @@ String oldDebug;
 void loop() {
   if(receiver.resetTriggered())
   {
-    reset();
+    ui.drawAlbum("/default_cover.jpg");
   }
   receiver.update();
   String debug = "";
@@ -154,6 +148,7 @@ void loop() {
       receiver.getDuration(),
       true
     );
+    ui.drawAlbum("/cover.jpg");
   }
   
 

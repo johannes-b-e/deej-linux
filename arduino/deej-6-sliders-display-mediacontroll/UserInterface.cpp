@@ -24,8 +24,6 @@ void UserInterface::begin() {
 }
 
 void UserInterface::Update(String newTitle, String newArtist, int newDuration, bool with_img) {
-
-  currentTime = 0;
   lastFillW = 0;
   progressInit = false;
 
@@ -34,8 +32,6 @@ void UserInterface::Update(String newTitle, String newArtist, int newDuration, b
   duration = newDuration;
 
   tft.fillScreen(BG_COLOR);
-
-  drawAlbum();
 
   tft.setTextColor(SUBTEXT_COLOR, BG_COLOR);
   tft.drawString("Now Playing", TEXT_X, PADDING + 5, 2);
@@ -46,23 +42,10 @@ void UserInterface::Update(String newTitle, String newArtist, int newDuration, b
 
 void UserInterface::UpdateProgessBar(int timestamp) {
 
-  if (timestamp == 0) {
-    // simulate playback locally only when we have no real timestamp
-    static unsigned long lastPlayback = 0;
-    if (millis() - lastPlayback > 1000) {
-      currentTime++;
-      lastPlayback = millis();
-    } else {
-      return;
-    }
-  } else {
-    currentTime = timestamp; // trust the real value directly
-  }
-
   int barX = PADDING;
   int barW = SCREEN_W - 2 * PADDING;
 
-  float progress = (duration > 0) ? (float)currentTime / duration : 0.0f;
+  float progress = (duration > 0) ? (float)timestamp / duration : 0.0f;
 
   int fillW = barW * progress;
 
@@ -71,17 +54,29 @@ void UserInterface::UpdateProgessBar(int timestamp) {
     progressInit = true;
   }
 
-  if (fillW > lastFillW) {
-    tft.fillRect(barX + lastFillW, PROGRESS_Y, fillW - lastFillW, PROGRESS_H, ACCENT_COLOR);
+  if (fillW < lastFillW) {
+    tft.fillRoundRect(barX, PROGRESS_Y, barW, PROGRESS_H, 4, CARD_COLOR);
+    if (fillW > 0) {
+        tft.fillRect(barX, PROGRESS_Y, fillW, PROGRESS_H, ACCENT_COLOR);
+    }
+  } else if (fillW > lastFillW) {
+      tft.fillRect(
+          barX + lastFillW,
+          PROGRESS_Y,
+          fillW - lastFillW,
+          PROGRESS_H,
+          ACCENT_COLOR
+      );
   }
+  
 
   lastFillW = fillW;
 
-  if (currentTime != lastTimeShown) {
+  if (timestamp != lastTimeShown) {
     tft.setTextColor(SUBTEXT_COLOR, BG_COLOR);
 
     tft.fillRect(barX, PROGRESS_Y + 12, 60, 20, BG_COLOR);
-    tft.drawString(formatTime(currentTime), barX, PROGRESS_Y + 12, 2);
+    tft.drawString(formatTime(timestamp), barX, PROGRESS_Y + 12, 2);
 
     String total = formatTime(duration);
     int totalW = tft.textWidth(total, 2);
@@ -91,26 +86,26 @@ void UserInterface::UpdateProgessBar(int timestamp) {
     tft.fillRect(rightX, PROGRESS_Y + 12, totalW, 20, BG_COLOR);
     tft.drawString(total, rightX, PROGRESS_Y + 12, 2);
 
-    lastTimeShown = currentTime;
+    lastTimeShown = timestamp;
   }
 }
 
 // ---------- Album ----------
-void UserInterface::drawAlbum() {
+void UserInterface::drawAlbum(const char* imagefile) {
   int x = PADDING;
   int y = PADDING;
   int r = ALBUM_SIZE * 0.125;
 
   tft.fillRoundRect(x, y, ALBUM_SIZE, ALBUM_SIZE, r, CARD_COLOR);
 
-  if (SPIFFS.exists("/cover.jpg")) {
+  if (LittleFS.exists(imagefile)) {
 
     TJpgDec.setJpgScale(1);
 
     int innerX = x + 1;
     int innerY = y + 1;
 
-    TJpgDec.drawFsJpg(innerX, innerY, "/cover.jpg");
+    TJpgDec.drawFsJpg(innerX, innerY, imagefile, LittleFS);
 
     tft.drawRoundRect(x, y, ALBUM_SIZE, ALBUM_SIZE, r, TFT_DARKGREY);
   }

@@ -1,7 +1,7 @@
 #include "SerialReceiver.h"
 #include "UserInterface.h"
 
-#define MAX_PAYLOAD 2048  // enough for 730B test
+#define MAX_PAYLOAD 4096  // enough for 730B test
 
 uint8_t state = 0;
 
@@ -9,8 +9,11 @@ uint8_t type = 0;
 uint32_t len = 0;
 uint32_t idx = 0;
 
-int readDataTimeoutMs = 1000;
+int readDataTimeoutMs = 5000;
 int readDataStartedAt = 0;
+
+bool paused = false;
+bool muted = false;
 
 uint8_t payload[MAX_PAYLOAD];
 
@@ -66,9 +69,9 @@ void SerialReceiver::update() {
     //Serial.println("Header OK");
     //Serial.println(length); // gets misinterpreted as a single-slider value
 
-    if (!imageFile) {
-      SPIFFS.remove("/cover.jpg");
-      imageFile = SPIFFS.open("/cover.jpg", FILE_WRITE);
+    if (!imageFile && PackageType == 2) {
+      LittleFS.remove("/cover.jpg");
+      imageFile = LittleFS.open("/cover.jpg", FILE_WRITE);
     }
 
     received = 0;   // reset the counter on how many chunks are received
@@ -106,7 +109,7 @@ void SerialReceiver::update() {
         state = WAIT_AA;
         newSongReady = true;  // notify the rest of the program that a new song is ready to be displayed on the screen
         Serial.println("DONE");
-        //SPIFFS.rename("/cover.jpg", "/default_cover.jpg");
+        //LittleFS.rename("/cover.jpg", "/paused.jpg");    // Using this and the test.py python script you can upload files to the esp's permanent storage
       }
     }
     else if(PackageType == 1){ 
@@ -139,9 +142,21 @@ void SerialReceiver::update() {
       int pausestatus = Update.substring(first + 1, second).toInt();
       int mutestatus = Update.substring(second + 1).toInt();
 
-      // Invoke some function that displays a UI-Element, warning that the mic is muted
-      // UserInterface::instance->UpdateMuteStatus(mutestatus)
-      UserInterface::instance->UpdateProgessBar(timestamp);
+      // update UI
+      if (UserInterface::instance) {
+        UserInterface::instance->UpdateProgessBar(timestamp);
+        // Hierarchy: Muted -> paused -> normal-cover
+        const char* album =
+        mutestatus == 1 ? "/muted.jpg" :
+        pausestatus == 1 ? "/paused.jpg" :
+                          "/cover.jpg";
+
+        if (mutestatus != muted || pausestatus != paused) {
+          UserInterface::instance->drawAlbum(album);
+          muted = mutestatus;
+          paused = pausestatus;
+        }
+      }
       
       state = WAIT_AA;    // reset the receiver
     }
@@ -154,9 +169,7 @@ void SerialReceiver::update() {
 bool SerialReceiver::hasNewSong() { return newSongReady && !(newSongReady = false); }
 bool SerialReceiver::DeejJustConnected() { return DeejConnected && !(DeejConnected = false); }
 bool SerialReceiver::resetTriggered() { return reset && !(reset = false); }
-bool SerialReceiver::isMuted() { return muted; }
-bool SerialReceiver::isPaused() { return paused; }
-
+bool SerialReceiver::pausedOrmuted() { return muted || paused; }
 
 String SerialReceiver::getTitle() { return title; }
 String SerialReceiver::getArtist() { return artist; }

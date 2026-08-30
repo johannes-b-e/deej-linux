@@ -1,6 +1,6 @@
 #pragma once
 #include <Arduino.h>
-#include <SPIFFS.h>
+#include <LittleFS.h>
 
 class SerialReceiver {
   public:
@@ -10,8 +10,7 @@ class SerialReceiver {
     bool hasNewSong();
     bool DeejJustConnected();
     bool resetTriggered();
-    bool isMuted();
-    bool isPaused();
+    bool pausedOrmuted();
 
     String getTitle();
     String getArtist();
@@ -22,7 +21,7 @@ class SerialReceiver {
     void handleFrame(uint8_t type, uint8_t* data, int len);
     void processBuffer();
 
-    static const int BUF_SIZE = 512;
+    static const int BUF_SIZE = 4096;
 
     File imageFile;
 
@@ -36,9 +35,6 @@ class SerialReceiver {
     bool newSongReady = false;
     bool DeejConnected = false;
     bool reset = false;
-
-    bool muted = false;
-    bool paused = false;
 
     uint32_t received = 0;
     uint32_t length = 0;

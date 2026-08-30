@@ -9,11 +9,11 @@ class UserInterface {
     void begin();
     void Update(String newTitle = "Literally nothing!", String newArtist = "waiting for playback data ...", int newDuration = 0, bool with_img = false);
     void UpdateProgessBar(int timestamp = 0);
+    void drawAlbum(const char* imagefile = "/cover.jpg");
 
     static UserInterface* instance;
 
   private:
-    void drawAlbum();
     void drawTitle();
     void drawArtist();
     String formatTime(int sec);
