@@ -16,11 +16,11 @@
         in {
           default = pkgs.buildGoModule rec {
             pname = "deej";
-            version = "1.0.0"; # Using a placeholder version since there's no explicit version
+            version = "1.1.0"; # Using a placeholder version since there's no explicit version
 
             src = ./.;
 
-            vendorHash = "sha256-9g8AugKTVkT4cucMzcBS/vJk7lukzvS6jKyKMqEe2io=";
+            vendorHash = null;
 
             # The main package is actually in pkg/deej/cmd directory
             subPackages = [ "pkg/deej/cmd" ];
