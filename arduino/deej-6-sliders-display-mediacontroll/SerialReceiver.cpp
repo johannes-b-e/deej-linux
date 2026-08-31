@@ -29,7 +29,7 @@ uint8_t PackageType = 0;
 // // ---------- UPDATE ----------
 void SerialReceiver::update() {
 
-  
+  /*
   // ---------- RESET CHECK  ----------
   if (state == WAIT_AA && Serial.available() > 0 && Serial.peek() == 0xFF) {
     Serial.read(); // consume the marker byte
@@ -37,7 +37,7 @@ void SerialReceiver::update() {
     Serial.println("RESET_ACK"); // optional, but useful for debugging
     return; // don't fall through to header parsing this call
   }
-  
+  */
 
   // ---------- HEADER ----------
   if (state == WAIT_AA) {

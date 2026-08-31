@@ -1,14 +1,17 @@
+// Package deej — mpris_client.go
+//
+// Low-level MPRIS/D-Bus plumbing: connecting to the session bus and reading
+// properties (metadata, position, playback status) from whichever player is
+// currently selected. Player-selection policy itself lives in
+// mpris_selection.go.
 package deej
 
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/godbus/dbus/v5"
-)
-
-const (
-	mprisServicePrefix = "org.mpris.MediaPlayer2."
 )
 
 // displayMetadata is the playback info extracted from an MPRIS player,
@@ -19,11 +22,20 @@ type displayMetadata struct {
 	Album    string
 	Duration int64
 	ArtURL   string
+	Source   string // "feishin", "youtube", "twitch", "firefox", "other"
 }
 
+// maxReasonableDurationMicros guards against Firefox's "unknown duration"
+// sentinel (int64 max), which would otherwise be misread as a real,
+// absurdly large track length.
+const maxReasonableDurationMicros = int64(24 * 60 * 60 * 1000000) // 24h
+
 type mprisClient struct {
-	bus  *dbus.Conn
-	name string
+	bus *dbus.Conn
+
+	mu     sync.RWMutex
+	name   string
+	source string
 }
 
 func newMPRISClient() (*mprisClient, error) {
@@ -31,14 +43,7 @@ func newMPRISClient() (*mprisClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect session bus: %w", err)
 	}
-
-	name, err := findMPRISPlayer(conn)
-	if err != nil {
-		conn.Close()
-		return nil, err
-	}
-
-	return &mprisClient{bus: conn, name: name}, nil
+	return &mprisClient{bus: conn}, nil
 }
 
 func (c *mprisClient) Close() error {
@@ -48,138 +53,75 @@ func (c *mprisClient) Close() error {
 	return c.bus.Close()
 }
 
-// listAllBusNames asks the D-Bus daemon itself for every name currently
-// registered on the bus. conn.Names() only returns names owned by our own
-// connection, so it can't be used to discover other services like MPRIS
-// players.
-func listAllBusNames(conn *dbus.Conn) ([]string, error) {
-	var names []string
-	obj := conn.BusObject()
-	if err := obj.Call("org.freedesktop.DBus.ListNames", 0).Store(&names); err != nil {
-		return nil, err
-	}
-	return names, nil
-}
-
-func findMPRISPlayer(conn *dbus.Conn) (string, error) {
-	names, err := listAllBusNames(conn)
+// refreshSelection re-runs the player-selection hierarchy (mpris_selection.go)
+// and updates the client's current target. Selection can change at any time
+// (e.g. Feishin gets started while Firefox was playing), so this is called
+// before every property read that depends on "which player is currently the
+// right one" rather than once at startup.
+func (c *mprisClient) refreshSelection() error {
+	// pass the previously-selected name so selection can prefer it when
+	// nothing is actively playing
+	name, source, err := findMPRISPlayer(c.bus, c.name)
 	if err != nil {
-		return "", fmt.Errorf("list bus names: %w", err)
+		return err
 	}
-
-	candidates := make([]string, 0, len(names))
-	statuses := make(map[string]string, len(names))
-
-	for _, name := range names {
-		if !strings.HasPrefix(name, mprisServicePrefix) {
-			continue
-		}
-		candidates = append(candidates, name)
-
-		obj := conn.Object(name, "/org/mpris/MediaPlayer2")
-		var props map[string]dbus.Variant
-		if err := obj.Call("org.freedesktop.DBus.Properties.GetAll", 0, "org.mpris.MediaPlayer2.Player").Store(&props); err != nil {
-			continue
-		}
-		if v, ok := props["PlaybackStatus"]; ok {
-			if s, ok := v.Value().(string); ok {
-				statuses[name] = s
-			}
-		}
-	}
-
-	if len(candidates) == 0 {
-		return "", fmt.Errorf("no mpris media player found on dbus")
-	}
-
-	best := chooseBestMPRISPlayer(candidates, statuses)
-	if best == "" {
-		return candidates[0], nil
-	}
-	return best, nil
+	c.mu.Lock()
+	c.name = name
+	c.source = source
+	c.mu.Unlock()
+	return nil
 }
 
-func chooseBestMPRISPlayer(names []string, statuses map[string]string) string {
-	if len(names) == 0 {
-		return ""
-	}
-
-	best := names[0]
-	bestScore := scoreForMPRISPlayer(best, statuses[best])
-
-	for _, name := range names[1:] {
-		score := scoreForMPRISPlayer(name, statuses[name])
-		if score > bestScore || (score == bestScore && isPreferredMPRISPlayer(name) && !isPreferredMPRISPlayer(best)) {
-			best = name
-			bestScore = score
-		}
-	}
-
-	return best
+func (c *mprisClient) currentTarget() (name, source string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.name, c.source
 }
 
-func scoreForMPRISPlayer(name string, status string) int {
-	score := 0
-	switch status {
-	case "Playing":
-		score = 3
-	case "Paused":
-		score = 2
-	case "Stopped":
-		score = 1
-	}
-
-	if isPreferredMPRISPlayer(name) {
-		score += 1
-	}
-
-	return score
-}
-
-func isPreferredMPRISPlayer(name string) bool {
-	lower := strings.ToLower(name)
-	return strings.Contains(lower, "feishin")
-}
-
+// currentMetadata re-selects the correct player, then reads its metadata.
 func (c *mprisClient) currentMetadata() (displayMetadata, error) {
-	obj := c.bus.Object(c.name, "/org/mpris/MediaPlayer2")
+	if err := c.refreshSelection(); err != nil {
+		return displayMetadata{}, err
+	}
+	name, source := c.currentTarget()
 
+	obj := c.bus.Object(name, "/org/mpris/MediaPlayer2")
 	var props map[string]dbus.Variant
 	if err := obj.Call("org.freedesktop.DBus.Properties.GetAll", 0, "org.mpris.MediaPlayer2.Player").Store(&props); err != nil {
 		return displayMetadata{}, fmt.Errorf("read player properties: %w", err)
 	}
 
-	meta := displayMetadata{}
+	meta := displayMetadata{Source: source}
 
 	metadataVariant, ok := props["Metadata"]
 	if !ok {
-		meta.Title = "Unknown title"
-		meta.Artist = "Unknown artist"
+		meta.Title, meta.Artist = "Unknown title", "Unknown artist"
 		return meta, nil
 	}
-
 	metadata, ok := metadataVariant.Value().(map[string]dbus.Variant)
 	if !ok {
-		meta.Title = "Unknown title"
-		meta.Artist = "Unknown artist"
+		meta.Title, meta.Artist = "Unknown title", "Unknown artist"
 		return meta, nil
 	}
 
 	if v, ok := metadata["xesam:title"]; ok {
-		if s, ok := v.Value().(string); ok {
-			meta.Title = s
+		switch tv := v.Value().(type) {
+		case string:
+			meta.Title = tv
+		case []byte:
+			meta.Title = string(tv)
 		}
 	}
 
 	if v, ok := metadata["xesam:artist"]; ok {
-		switch artistValue := v.Value().(type) {
+		switch av := v.Value().(type) {
 		case string:
-			meta.Artist = artistValue
+			meta.Artist = av
 		case []string:
-			meta.Artist = strings.Join(artistValue, ", ")
+			meta.Artist = strings.Join(av, ", ")
 		case []interface{}:
-			parts := make([]string, 0, len(artistValue))
-			for _, item := range artistValue {
+			parts := make([]string, 0, len(av))
+			for _, item := range av {
 				if s, ok := item.(string); ok {
 					parts = append(parts, s)
 				}
@@ -189,20 +131,27 @@ func (c *mprisClient) currentMetadata() (displayMetadata, error) {
 	}
 
 	if v, ok := metadata["xesam:album"]; ok {
-		if s, ok := v.Value().(string); ok {
-			meta.Album = s
+		switch av := v.Value().(type) {
+		case string:
+			meta.Album = av
+		case []byte:
+			meta.Album = string(av)
 		}
 	}
 
 	if v, ok := metadata["mpris:length"]; ok {
-		if n, ok := v.Value().(int64); ok {
+		if n, ok := v.Value().(int64); ok && n > 0 && n < maxReasonableDurationMicros {
 			meta.Duration = n / 1000000 // microseconds -> seconds
 		}
+		// else: leave Duration at 0 - sentinel/unknown value, not real data
 	}
 
 	if v, ok := metadata["mpris:artUrl"]; ok {
-		if s, ok := v.Value().(string); ok {
-			meta.ArtURL = s
+		switch uv := v.Value().(type) {
+		case string:
+			meta.ArtURL = uv
+		case []byte:
+			meta.ArtURL = string(uv)
 		}
 	}
 
@@ -214,15 +163,18 @@ func (c *mprisClient) currentMetadata() (displayMetadata, error) {
 	}
 
 	return meta, nil
-
 }
 
-// currentPosition returns the player's current playback position, in
-// seconds. Position lives at the top level of the Player interface's
+// currentPosition returns the currently-selected player's playback position,
+// in seconds. Position lives at the top level of the Player interface's
 // properties (unlike Title/Artist/Album, which are nested inside Metadata).
 func (c *mprisClient) currentPosition() (int64, error) {
-	obj := c.bus.Object(c.name, "/org/mpris/MediaPlayer2")
+	name, _ := c.currentTarget()
+	if name == "" {
+		return 0, nil
+	}
 
+	obj := c.bus.Object(name, "/org/mpris/MediaPlayer2")
 	var props map[string]dbus.Variant
 	if err := obj.Call("org.freedesktop.DBus.Properties.GetAll", 0, "org.mpris.MediaPlayer2.Player").Store(&props); err != nil {
 		return 0, fmt.Errorf("read player properties: %w", err)
@@ -233,15 +185,18 @@ func (c *mprisClient) currentPosition() (int64, error) {
 			return n / 1000000, nil // microseconds -> seconds
 		}
 	}
-
 	return 0, nil
 }
 
-// IsPaused returns true if the current player reports a "Paused" playback
-// status. Returns an error if the player properties could not be read.
+// IsPaused returns true if the currently-selected player reports a "Paused"
+// playback status.
 func (c *mprisClient) IsPaused() (bool, error) {
-	obj := c.bus.Object(c.name, "/org/mpris/MediaPlayer2")
+	name, _ := c.currentTarget()
+	if name == "" {
+		return false, nil
+	}
 
+	obj := c.bus.Object(name, "/org/mpris/MediaPlayer2")
 	var props map[string]dbus.Variant
 	if err := obj.Call("org.freedesktop.DBus.Properties.GetAll", 0, "org.mpris.MediaPlayer2.Player").Store(&props); err != nil {
 		return false, fmt.Errorf("read player properties: %w", err)

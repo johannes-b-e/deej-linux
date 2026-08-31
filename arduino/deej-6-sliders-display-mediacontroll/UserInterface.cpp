@@ -21,6 +21,7 @@ void UserInterface::begin() {
 
   TJpgDec.setCallback(tft_output);
   TJpgDec.setSwapBytes(true);
+  tft.fillScreen(BG_COLOR);
 }
 
 void UserInterface::Update(String newTitle, String newArtist, int newDuration, bool with_img) {
@@ -31,7 +32,7 @@ void UserInterface::Update(String newTitle, String newArtist, int newDuration, b
   artist = newArtist;
   duration = newDuration;
 
-  //tft.fillScreen(BG_COLOR);
+  tft.fillRect(250, 0, SCREEN_W - 250, SCREEN_H, BG_COLOR);
 
   tft.setTextColor(SUBTEXT_COLOR, BG_COLOR);
   tft.drawString("Now Playing", TEXT_X, PADDING + 5, 2);

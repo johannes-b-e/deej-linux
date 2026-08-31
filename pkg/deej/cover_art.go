@@ -1,15 +1,13 @@
-// Package deej — playback_monitor.go
+// Package deej — cover_art.go
 //
-// This module manages metadata and cover art which can be sent to the
-// microcontroller for display on a screen. Using MPRIS, we retrieve this
-// from whatever is playing right now, check if it changed, package it in
-// the correct format, extract the image and convert it to a 230x230 JPEG
-// with rounded corners (20px radius). The result is handed off to
-// serial.go's SendMetadata/SendCover, which handle the wire protocol.
+// Pure image-processing pipeline: fetching/loading source art, cropping to
+// square, resizing, rounding corners, and JPEG-encoding to the display's
+// expected 230x230 format. Nothing here touches MPRIS or serial directly.
 package deej
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"image"
 	"image/color"
@@ -18,145 +16,90 @@ import (
 	"image/jpeg"
 	_ "image/png"
 	"net/http"
-	"time"
-
-	"go.uber.org/zap"
+	"os"
+	"strings"
 )
 
 const (
 	coverSize        = 230 // target width/height of the cover art sent to the display
 	coverRadius      = 25  // corner rounding radius, in pixels
 	coverJPEGQuality = 70
+
+	defaultCoversDir = "./default_covers"
 )
 
-// PlaybackMonitor polls MPRIS for the currently playing track, detects
-// changes, and forwards a ready-to-display metadata + cover art package to
-// the microcontroller via SerialIO.
-type PlaybackMonitor struct {
-	player     *mprisClient
-	serial     *SerialIO
-	httpClient *http.Client
-	logger     *zap.SugaredLogger
-	poll       time.Duration
-
-	lastSent playbackFingerprint
-}
-
-// playbackFingerprint is a cheap, comparable summary of a track's identity.
-// If two fingerprints are equal, we assume nothing meaningful changed and
-// skip re-fetching/re-encoding artwork and resending data over serial.
-type playbackFingerprint struct {
-	title    string
-	artist   string
-	album    string
-	artURL   string
-	duration int64
-}
-
-func fingerprintFor(meta displayMetadata) playbackFingerprint {
-	return playbackFingerprint{
-		title:    meta.Title,
-		artist:   meta.Artist,
-		album:    meta.Album,
-		artURL:   meta.ArtURL,
-		duration: meta.Duration,
+// localCoverPath returns the placeholder cover path for a given MPRIS
+// selection source, or "" if the source should use real fetched artwork.
+func localCoverPath(source string) string {
+	switch source {
+	case "youtube":
+		return defaultCoversDir + "/youtube.jpg"
+	case "twitch":
+		return defaultCoversDir + "/twitch.jpg"
+	case "firefox":
+		return defaultCoversDir + "/firefox.jpg"
+	default:
+		return "" // feishin, other -> use real artwork
 	}
 }
 
-// NewPlaybackMonitor creates a PlaybackMonitor that will poll MPRIS every
-// `poll` interval and forward changes to sio.
-func NewPlaybackMonitor(sio *SerialIO, poll time.Duration, logger *zap.SugaredLogger) (*PlaybackMonitor, error) {
-	player, err := newMPRISClient()
+// resolveCoverArt returns display-ready cover art for the given metadata:
+// a local placeholder for known Firefox sources (cached after first load),
+// or freshly fetched/processed artwork otherwise.
+func (m *PlaybackMonitor) resolveCoverArt(meta displayMetadata) ([]byte, error) {
+	path := localCoverPath(meta.Source)
+	if path == "" {
+		return m.fetchCoverArt(meta.ArtURL)
+	}
+
+	if cached, ok := m.localCoverCache[path]; ok {
+		return cached, nil
+	}
+
+	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("init mpris client: %w", err)
+		return nil, fmt.Errorf("open local cover %s: %w", path, err)
+	}
+	defer f.Close()
+
+	src, _, err := image.Decode(f)
+	if err != nil {
+		return nil, fmt.Errorf("decode local cover %s: %w", path, err)
 	}
 
-	return &PlaybackMonitor{
-		player: player,
-		serial: sio,
-		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
-		},
-		logger: logger,
-		poll:   poll,
-	}, nil
-}
-
-// Close releases the underlying MPRIS connection.
-func (m *PlaybackMonitor) Close() error {
-	if m == nil || m.player == nil {
-		return nil
+	encoded, err := processCoverImage(src)
+	if err != nil {
+		return nil, err
 	}
-	return m.player.Close()
-}
 
-// Run polls MPRIS forever (intended to be called via `go m.Run()`), sending
-// updated playback data to the microcontroller whenever the track changes.
-func (m *PlaybackMonitor) Run() {
-	for {
-		meta, err := m.player.currentMetadata()
-		if err != nil {
-			if m.logger != nil {
-				m.logger.Warnw("Failed to read MPRIS metadata", "error", err)
-			}
-			time.Sleep(m.poll)
-			continue
-		}
-
-		fp := fingerprintFor(meta)
-		if fp == m.lastSent {
-			// nothing changed since the last successful send - skip the
-			// expensive cover art fetch/resize/encode entirely
-			time.Sleep(m.poll)
-			continue
-		}
-
-		if err := m.serial.SendMetadata(meta.Title, meta.Artist, int(meta.Duration)); err != nil {
-			if m.logger != nil {
-				m.logger.Warnw("Failed to send metadata to display", "error", err)
-			}
-			// don't update lastSent - we'll retry this same track next poll
-			time.Sleep(m.poll)
-			continue
-		}
-
-		cover, err := m.fetchCoverArt(meta.ArtURL)
-		if err != nil {
-			if m.logger != nil {
-				m.logger.Warnw("Failed to fetch/process cover art", "error", err)
-			}
-			cover = nil
-		}
-
-		if cover != nil {
-			if m.logger != nil {
-				start := time.Now()
-				if err := m.serial.SendCover(cover); err != nil {
-					m.logger.Warnw("Failed to send cover art to display", "error", err)
-					// metadata already sent successfully - still mark this
-					// track as "sent" so we don't keep retrying the whole
-					// thing every poll; only the image failed
-				} else {
-					m.logger.Infof("Sent image data (%.3fKB) in %s", float64(len(cover))/1024.0, time.Since(start))
-				}
-			}
-		}
-
-		m.lastSent = fp
-		if m.logger != nil {
-			m.logger.Infow("Sent playback data to display", "title", meta.Title, "artist", meta.Artist)
-		}
-
-		time.Sleep(m.poll)
-	}
+	m.localCoverCache[path] = encoded
+	return encoded, nil
 }
 
 // fetchCoverArt downloads the artwork at url and returns it as a 230x230
-// JPEG with 20px rounded corners, ready for display. Returns (nil, nil) if
-// url is empty.
+// JPEG with rounded corners, ready for display. Returns (nil, nil) if url
+// is empty.
 func (m *PlaybackMonitor) fetchCoverArt(url string) ([]byte, error) {
 	if url == "" {
 		return nil, nil
+	}
+
+	// Support data: URIs (e.g. Jellyfin's `data:image/jpeg;base64,...`)
+	if strings.HasPrefix(url, "data:") {
+		comma := strings.Index(url, ",")
+		if comma < 0 || comma+1 >= len(url) {
+			return nil, fmt.Errorf("invalid data URI for cover art")
+		}
+		payload := url[comma+1:]
+		decoded, err := base64.StdEncoding.DecodeString(payload)
+		if err != nil {
+			return nil, fmt.Errorf("decode data URI: %w", err)
+		}
+		src, _, err := image.Decode(bytes.NewReader(decoded))
+		if err != nil {
+			return nil, fmt.Errorf("decode cover art: %w", err)
+		}
+		return processCoverImage(src)
 	}
 
 	resp, err := m.httpClient.Get(url)
@@ -174,6 +117,12 @@ func (m *PlaybackMonitor) fetchCoverArt(url string) ([]byte, error) {
 		return nil, fmt.Errorf("decode cover art: %w", err)
 	}
 
+	return processCoverImage(src)
+}
+
+// processCoverImage runs the shared crop/resize/round/encode pipeline used
+// by both fetched and local placeholder covers.
+func processCoverImage(src image.Image) ([]byte, error) {
 	squared := cropToSquare(src)
 	resized := resizeBilinear(squared, coverSize, coverSize)
 	rounded := roundCorners(resized, coverRadius)
@@ -182,7 +131,6 @@ func (m *PlaybackMonitor) fetchCoverArt(url string) ([]byte, error) {
 	if err := jpeg.Encode(buf, rounded, &jpeg.Options{Quality: coverJPEGQuality}); err != nil {
 		return nil, fmt.Errorf("encode cover art: %w", err)
 	}
-
 	return buf.Bytes(), nil
 }
 
@@ -317,38 +265,4 @@ func roundedMask(w, h, radius int) *image.Alpha {
 	}
 
 	return mask
-}
-
-// RunPositionUpdates periodically sends the current playback position and
-// mic-mute status to the display, independent of whether the track itself
-// has changed. Intended to be started via `go m.RunPositionUpdates()`.
-func (m *PlaybackMonitor) RunPositionUpdates(interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		position, err := m.player.currentPosition()
-		if err != nil {
-			if m.logger != nil {
-				m.logger.Warnw("Failed to read MPRIS position", "error", err)
-			}
-			continue
-		}
-
-		micMuted := m.serial.IsMicMuted()
-		paused := false
-		if m.player != nil {
-			if p, err := m.player.IsPaused(); err == nil {
-				paused = p
-			} else if m.logger != nil {
-				m.logger.Debugw("Failed to read playback paused state", "error", err)
-			}
-		}
-
-		if err := m.serial.SendUpdate(int(position), paused, micMuted); err != nil {
-			if m.logger != nil {
-				m.logger.Warnw("Failed to send position update to display", "error", err)
-			}
-		}
-	}
 }
