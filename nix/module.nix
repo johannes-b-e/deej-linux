@@ -64,11 +64,16 @@ in
       default = true;
       description = "Enable verbose logging";
     };
+    useDevBuild = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Use the dev build of deej (built with buildType=dev) instead of the release package";
+    };
   };
 
   config = mkIf cfg.enable {
-    # Install the binary
-    home.packages = [ pkgs.deej ];
+    # Install the binary (choose dev build if requested)
+    home.packages = [ (if cfg.useDevBuild then pkgs.deejDev else pkgs.deej) ];
 
     # Create config file
     home.file.".config/deej/config.yaml".source = configFile;
@@ -82,7 +87,7 @@ in
       };
 
       Service = {
-        ExecStart = "${pkgs.deej}/bin/deej${optionalString cfg.verbose " -v"}";
+        ExecStart = "${(if cfg.useDevBuild then pkgs.deejDev else pkgs.deej)}/bin/deej${optionalString cfg.verbose " -v"}";
         Restart = "always";
         RestartSec = 5;
         WorkingDirectory = "%h/.config/deej";

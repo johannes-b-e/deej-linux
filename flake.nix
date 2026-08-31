@@ -46,10 +46,40 @@
               platforms = platforms.linux;
             };
           };
+          dev = pkgs.buildGoModule rec {
+            pname = "deej-dev";
+            version = "dev";
+
+            src = ./.;
+
+            vendorHash = null;
+
+            subPackages = [ "pkg/deej/cmd" ];
+
+            ldflags = [
+              "-s"
+              "-w"
+              "-X main.versionTag=dev"
+              "-X main.buildType=dev"
+            ];
+
+            postInstall = ''
+              mv $out/bin/cmd $out/bin/deej
+            '';
+
+            meta = with pkgs.lib; {
+              description = "Deej (dev build)";
+              homepage = "https://github.com/TheScabbage/deej-linux";
+              license = licenses.mit;
+              maintainers = [ ];
+              platforms = platforms.linux;
+            };
+          };
         });
 
       overlays.default = final: prev: {
         deej = self.packages.${prev.system}.default;
+        deejDev = self.packages.${prev.system}.dev;
       };
 
       nixosModules.default = import ./nix/module.nix;
