@@ -10,6 +10,10 @@
 int poti[6] = {33, 32, 35, 34, 39, 36};
 int NumPotis = 6;
 
+float filtered[6] = {0};
+int last[6] = {0};
+int sliderValues[6] = {0};
+
 int buttons[4] = {19, 21, 16, 17};
 int NumButtons = 4;
 bool pressed[4] = {false, false, false, false};
@@ -74,6 +78,8 @@ void setup() {
   receiver.begin();
 
   ui.Update();  //Update UI with defaults
+  int values[6] = {574, 274, 778, 236, 853, 1023};
+  ui.drawSliderRow(values);
   ui.drawAlbum("/default_cover.jpg");
 
   for(int i = 0; i < NumPotis; i++){
@@ -85,9 +91,6 @@ void setup() {
   pinMode(BUTTON_MUTEMIC, INPUT_PULLUP);
   pinMode(BUTTON_PREVIOUS, INPUT_PULLUP);
 }
-
-float filtered[6] = {0};
-int last[6] = {0};
 
 int readSlider(int index, int raw) {
 
@@ -120,26 +123,34 @@ void updateButtons() {
 String oldDebug;
 // ---------- Loop ----------
 void loop() {
-  if(receiver.resetTriggered())
-  {
+  if (receiver.resetTriggered()) {
     ui.drawAlbum("/default_cover.jpg");
   }
+
   receiver.update();
+
   String debug = "";
+
   for (int i = 0; i < NumPotis; i++) {
-    debug += readSlider(i, analogRead(poti[i]));
+    sliderValues[i] = readSlider(i, analogRead(poti[i]));
+
+    debug += sliderValues[i];
 
     if (i < NumPotis - 1) {
       debug += "|";
     }
   }
-  
-  // Only send something if meaningful change as to not over-spam the serial-connection, or alternativly if a new Deej client initially connected
-  if(debug != oldDebug || receiver.DeejJustConnected()){
+
+  // Only send/update UI if values changed or a new Deej client connected
+  if (debug != oldDebug || receiver.DeejJustConnected()) {
     Serial.println(debug);
+
+    // Update the visual sliders
+    ui.drawSliderRow(sliderValues);
+
     oldDebug = debug;
   }
-  
+
   if (receiver.hasNewSong()) {
     Serial.println("New song received!");
 
@@ -149,9 +160,11 @@ void loop() {
       receiver.getDuration(),
       true
     );
+
     if (!receiver.pausedOrmuted()) {
       UserInterface::instance->drawAlbum("/cover.jpg");
     }
   }
+
   updateButtons();
 }
