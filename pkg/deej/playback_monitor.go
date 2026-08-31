@@ -37,6 +37,7 @@ type playbackFingerprint struct {
 	artist   string
 	album    string
 	artURL   string
+	trackURL string
 	duration int64
 	source   string
 }
@@ -47,6 +48,7 @@ func fingerprintFor(meta displayMetadata) playbackFingerprint {
 		artist:   meta.Artist,
 		album:    meta.Album,
 		artURL:   meta.ArtURL,
+		trackURL: meta.TrackURL,
 		duration: meta.Duration,
 		source:   meta.Source,
 	}

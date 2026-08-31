@@ -149,15 +149,9 @@ void loop() {
       receiver.getDuration(),
       true
     );
-    bool pom = receiver.pausedOrmuted();
-    Serial.print("DBG:main loop hasNewSong, pausedOrmuted="); Serial.println(pom);
-    if (!pom) {
-      Serial.println("DBG:main loop drawing /cover.jpg");
+    if (!receiver.pausedOrmuted()) {
       UserInterface::instance->drawAlbum("/cover.jpg");
     }
   }
-  
-
-  //ui.UpdateProgessBar(0);
   updateButtons();
 }

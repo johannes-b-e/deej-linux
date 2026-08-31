@@ -8,6 +8,7 @@ package deej
 import (
 	"bytes"
 	"encoding/base64"
+    "encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -15,7 +16,9 @@ import (
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -47,6 +50,23 @@ func localCoverPath(source string) string {
 // a local placeholder for known Firefox sources (cached after first load),
 // or freshly fetched/processed artwork otherwise.
 func (m *PlaybackMonitor) resolveCoverArt(meta displayMetadata) ([]byte, error) {
+	// If the source is YouTube, try to obtain the video's thumbnail quickly
+	if meta.Source == "youtube" {
+		// prioritize explicit track URL, fall back to art URL if that contains youtube
+		videoURL := meta.TrackURL
+		if videoURL == "" && strings.Contains(strings.ToLower(meta.ArtURL), "youtube") {
+			videoURL = meta.ArtURL
+		}
+		if videoURL != "" {
+			if data, err := m.fetchYouTubeThumbnail(videoURL); err == nil && data != nil {
+				src, _, err := image.Decode(bytes.NewReader(data))
+				if err == nil {
+					return processCoverImage(src)
+				}
+			}
+		}
+	}
+
 	path := localCoverPath(meta.Source)
 	if path == "" {
 		return m.fetchCoverArt(meta.ArtURL)
@@ -118,6 +138,101 @@ func (m *PlaybackMonitor) fetchCoverArt(url string) ([]byte, error) {
 	}
 
 	return processCoverImage(src)
+}
+
+// fetchYouTubeThumbnail tries to obtain a small, fast-to-download thumbnail
+// for a given YouTube video URL. It prefers the low/medium quality
+// `mqdefault.jpg` to keep transfer size small and falls back to `hqdefault`.
+func (m *PlaybackMonitor) fetchYouTubeThumbnail(videoURL string) ([]byte, error) {
+	vid := extractYouTubeID(videoURL)
+	if vid == "" {
+		// try oEmbed as a fallback
+		thumb, err := fetchOEmbedThumbnail(m.httpClient, videoURL)
+		if err != nil {
+			return nil, err
+		}
+		if thumb == "" {
+			return nil, fmt.Errorf("no video id or oembed thumbnail found")
+		}
+		resp, err := m.httpClient.Get(thumb)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("thumbnail fetch failed: status %d", resp.StatusCode)
+		}
+		return io.ReadAll(resp.Body)
+	}
+
+	candidates := []string{
+		fmt.Sprintf("https://img.youtube.com/vi/%s/mqdefault.jpg", vid),
+		fmt.Sprintf("https://img.youtube.com/vi/%s/hqdefault.jpg", vid),
+	}
+
+	for _, u := range candidates {
+		resp, err := m.httpClient.Get(u)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			continue
+		}
+		return data, nil
+	}
+	return nil, fmt.Errorf("no thumbnail found for video %s", videoURL)
+}
+
+// extractYouTubeID extracts the video id from common YouTube URL forms.
+func extractYouTubeID(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(u.Host)
+	if host == "youtu.be" {
+		return strings.TrimPrefix(u.Path, "/")
+	}
+	if strings.Contains(host, "youtube.com") {
+		// check query param v
+		q := u.Query()
+		if id := q.Get("v"); id != "" {
+			return id
+		}
+		// /embed/<id>
+		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		for i, p := range parts {
+			if p == "embed" && i+1 < len(parts) {
+				return parts[i+1]
+			}
+		}
+	}
+	return ""
+}
+
+// fetchOEmbedThumbnail queries YouTube's oEmbed endpoint for a thumbnail URL.
+func fetchOEmbedThumbnail(client *http.Client, videoURL string) (string, error) {
+	endpoint := "https://www.youtube.com/oembed?format=json&url=" + url.QueryEscape(videoURL)
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("oembed returned status %d", resp.StatusCode)
+	}
+	var js struct{
+		ThumbnailURL string `json:"thumbnail_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&js); err != nil {
+		return "", err
+	}
+	return js.ThumbnailURL, nil
 }
 
 // processCoverImage runs the shared crop/resize/round/encode pipeline used

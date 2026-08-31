@@ -23,6 +23,7 @@ type displayMetadata struct {
 	Duration int64
 	ArtURL   string
 	Source   string // "feishin", "youtube", "twitch", "firefox", "other"
+	TrackURL string // optional URL of the track (e.g. youtube watch URL)
 }
 
 // maxReasonableDurationMicros guards against Firefox's "unknown duration"
@@ -152,6 +153,15 @@ func (c *mprisClient) currentMetadata() (displayMetadata, error) {
 			meta.ArtURL = uv
 		case []byte:
 			meta.ArtURL = string(uv)
+		}
+	}
+
+	if v, ok := metadata["xesam:url"]; ok {
+		switch uv := v.Value().(type) {
+		case string:
+			meta.TrackURL = uv
+		case []byte:
+			meta.TrackURL = string(uv)
 		}
 	}
 
