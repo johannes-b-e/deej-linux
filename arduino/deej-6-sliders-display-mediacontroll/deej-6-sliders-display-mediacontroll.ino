@@ -7,12 +7,12 @@
 #include "SerialReceiver.h"
 #include "UserInterface.h"
 
-int poti[6] = {33, 32, 35, 34, 39, 36};
-int NumPotis = 6;
+int poti[NumPotis] = {33, 32, 35, 34, 39, 36};
 
-float filtered[6] = {0};
-int last[6] = {0};
-int sliderValues[6] = {0};
+
+float filtered[NumPotis] = {0};
+int last[NumPotis] = {0};
+String SliderOutput;
 
 int buttons[4] = {19, 21, 16, 17};
 int NumButtons = 4;
@@ -40,26 +40,6 @@ void onErrorCallback(hardwareSerial_error_t error) {
     Serial.printf("UART Error: %d\n", error);
 }
 
-void initFS(){
-  if (!LittleFS.begin(true)) {
-    Serial.println("DBG:LittleFS mount FAILED even after format attempt");
-  } else {
-      Serial.println("DBG:LittleFS mounted OK");
-  }
-
-  Serial.println("DBG:--- LittleFS contents ---");
-  File root = LittleFS.open("/");
-  File file = root.openNextFile();
-  while (file) {
-      Serial.print("DBG:file=");
-      Serial.print(file.name());
-      Serial.print(" size=");
-      Serial.println(file.size());
-      file = root.openNextFile();
-  }
-  Serial.println("DBG:--- end ---");
-}
-
 // ---------- Setup ----------
 void setup() {
 
@@ -73,7 +53,7 @@ void setup() {
 
   Serial.onReceiveError(onErrorCallback);
 
-  initFS();
+  LittleFS.begin(true);
 
   receiver.begin();
 
@@ -92,6 +72,18 @@ void setup() {
   pinMode(BUTTON_PREVIOUS, INPUT_PULLUP);
 }
 
+void updateButtons() {
+  for (int i = 0; i < NumButtons; i++) {
+    if (digitalRead(buttons[i]) == LOW && !pressed[i]) {
+      Serial.println(buttonCMD[i]);
+      pressed[i] = true;
+    }
+    else if (digitalRead(buttons[i]) != LOW && pressed[i]) {
+      pressed[i] = false;
+    }
+  }
+}
+/*
 int readSlider(int index, int raw) {
 
     filtered[index] =
@@ -106,21 +98,40 @@ int readSlider(int index, int raw) {
 
     return last[index];
 }
+*/
+bool UpdateSliders(String &output) {
+  bool updateRequired = false;
 
-void updateButtons() {
-  for (int i = 0; i < NumButtons; i++) {
-    if (digitalRead(buttons[i]) == LOW && !pressed[i]) {
-      Serial.println(buttonCMD[i]);
-      pressed[i] = true;
-    }
-    else if (digitalRead(buttons[i]) != LOW && pressed[i]) {
-      pressed[i] = false;
+  for (int i = 0; i < NumPotis; i++) {
+    int raw = analogRead(poti[i]);
+
+    filtered[i] = filtered[i] * 0.85 + raw * 0.15;  //Hystersis(?) smoothing value over by combining with prev. value.
+
+    int value = (int)(filtered[i] / 4);
+
+    if (abs(value - last[i]) > 4) {
+      last[i] = value;
+
+      // Reverse physical order for UI
+      ui.drawSliderRowSlider(5 - i, value);
+
+      updateRequired = true;
     }
   }
+
+  if (updateRequired) {
+    output = "";
+
+    for (int i = 0; i < NumPotis; i++) {
+      output += last[i];
+
+      if (i < NumPotis - 1) {
+        output += "|";
+      }
+    }
+  }
+  return updateRequired;
 }
-
-
-String oldDebug;
 // ---------- Loop ----------
 void loop() {
   if (receiver.resetTriggered()) {
@@ -129,6 +140,11 @@ void loop() {
 
   receiver.update();
 
+  if(UpdateSliders(SliderOutput) || receiver.DeejJustConnected()){
+    Serial.println(SliderOutput);
+  }
+
+  /*
   String debug = "";
 
   for (int i = 0; i < NumPotis; i++) {
@@ -140,6 +156,7 @@ void loop() {
       debug += "|";
     }
   }
+  
 
   // Only send/update UI if values changed or a new Deej client connected
   if (debug != oldDebug || receiver.DeejJustConnected()) {
@@ -150,6 +167,7 @@ void loop() {
 
     oldDebug = debug;
   }
+  */
 
   if (receiver.hasNewSong()) {
     Serial.println("New song received!");

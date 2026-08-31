@@ -4,6 +4,8 @@
 // 1 enables debug output, 0 disables it
 #define DEBUG 1
 
+#define NumPotis 6
+
 // TFT Screen Size;
 #define SCREEN_W 480
 #define SCREEN_H 320

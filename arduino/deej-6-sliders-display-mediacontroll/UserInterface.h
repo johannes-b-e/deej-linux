@@ -10,6 +10,7 @@ class UserInterface {
     void Update(String newTitle = "Literally nothing!", String newArtist = "waiting for playback data ...", int newDuration = 0, bool with_img = false);
     void UpdateProgessBar(int timestamp = 0);
     void drawSliderRow(int values[6]);
+    void drawSliderRowSlider(int i, int value);
     void drawAlbum(const char* imagefile = "/cover.jpg");
 
     static UserInterface* instance;

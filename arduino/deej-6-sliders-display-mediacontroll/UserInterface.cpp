@@ -94,10 +94,32 @@ void UserInterface::drawSliderRow(int values[6]) {
     tft.fillRoundRect(x, barY, cellW - 4, SLIDER_BAR_H, 2, CARD_COLOR);
 
     // bar fill
-    int fillW = (cellW - 4) * values[5-i] / 1023;   // reverse ordering because I failed when soldering the sliders (passiert den besten)
+    int fillW = (cellW - 4) * values[i] / 1023;   // reverse ordering because I failed when soldering the sliders (passiert den besten)
     if (fillW > 0) {
       tft.fillRect(x, barY, fillW, SLIDER_BAR_H, sliderColors[i]);
     }
+  }
+}
+
+void UserInterface::drawSliderRowSlider(int i, int value) {
+  int totalW = SCREEN_W - 2 * PADDING;
+  int cellW = totalW / 6;
+
+  int x = PADDING + i * cellW;
+
+  // label
+  tft.setTextColor(sliderColors[i], BG_COLOR);
+  tft.fillRect(x, SLIDER_Y, cellW - 4, SLIDER_LABEL_H, BG_COLOR);
+  tft.drawString(sliderLabels[i], x, SLIDER_Y, 2);
+
+  // bar background
+  int barY = SLIDER_Y + SLIDER_LABEL_H + SLIDER_GAP;
+  tft.fillRoundRect(x, barY, cellW - 4, SLIDER_BAR_H, 2, CARD_COLOR);
+
+  // bar fill
+  int fillW = (cellW - 4) * value / 1023;   // reverse ordering because I failed when soldering the sliders (passiert den besten)
+  if (fillW > 0) {
+    tft.fillRect(x, barY, fillW, SLIDER_BAR_H, sliderColors[i]);
   }
 }
 
