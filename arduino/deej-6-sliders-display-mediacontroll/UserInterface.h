@@ -11,6 +11,7 @@ class UserInterface {
     void UpdateProgessBar(int timestamp = 0);
     void drawSliderRow(int values[6]);
     void drawSliderRowSlider(int i, int value);
+    void drawSliderRowProgress(int i, int value, int lastValue);
     void drawAlbum(const char* imagefile = "/cover.jpg");
 
     static UserInterface* instance;

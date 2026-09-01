@@ -11,7 +11,7 @@
 #define SCREEN_H 320
 
 // Universal Padding along the screen edge:
-#define PADDING 16
+#define PADDING 12
 
 // Size of the Albumcover viewport:
 #define ALBUM_SIZE 230
@@ -27,8 +27,8 @@
 #define PROGRESS_W (SCREEN_W - TEXT_X - PADDING)  // ~202px, right column width only
 
 // slider row, below everything
-#define SLIDER_Y (PADDING + ALBUM_SIZE + PADDING)  // 262, same spot progress bar used to be
-#define SLIDER_LABEL_H 20
+#define SLIDER_Y (PADDING + ALBUM_SIZE + PADDING + 10)  // 262, same spot progress bar used to be
+#define SLIDER_LABEL_H 40
 #define SLIDER_BAR_H 8
 #define SLIDER_GAP 2
 

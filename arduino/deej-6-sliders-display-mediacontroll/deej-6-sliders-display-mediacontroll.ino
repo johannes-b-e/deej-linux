@@ -58,7 +58,7 @@ void setup() {
   receiver.begin();
 
   ui.Update();  //Update UI with defaults
-  int values[6] = {574, 274, 778, 236, 853, 1023};
+  int values[NumPotis] = {0};
   ui.drawSliderRow(values);
   ui.drawAlbum("/default_cover.jpg");
 
@@ -83,22 +83,6 @@ void updateButtons() {
     }
   }
 }
-/*
-int readSlider(int index, int raw) {
-
-    filtered[index] =
-        filtered[index] * 0.85 +
-        raw * 0.15;
-
-    int value = (int)(filtered[index] / 4);
-
-    if (abs(value - last[index]) > 4) {
-        last[index] = value;
-    }
-
-    return last[index];
-}
-*/
 bool UpdateSliders(String &output) {
   bool updateRequired = false;
 
@@ -110,10 +94,10 @@ bool UpdateSliders(String &output) {
     int value = (int)(filtered[i] / 4);
 
     if (abs(value - last[i]) > 4) {
+      ui.drawSliderRowProgress(5-i, value, last[i]);
       last[i] = value;
-
       // Reverse physical order for UI
-      ui.drawSliderRowSlider(5 - i, value);
+      //ui.drawSliderRowSlider(5 - i, value);
 
       updateRequired = true;
     }

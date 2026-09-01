@@ -71,6 +71,7 @@ void SerialReceiver::update() {
           imageFile.close();
       }
 
+      // Change these temporarily to upload (probably) any file you want to the filesystem
       LittleFS.remove("/cover.jpg");
       imageFile = LittleFS.open("/cover.jpg", FILE_WRITE);
 
