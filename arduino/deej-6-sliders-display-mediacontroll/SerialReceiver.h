@@ -16,6 +16,9 @@ class SerialReceiver {
     String getArtist();
     int getDuration();
 
+    unsigned long timeSincePackage = 0;
+    unsigned long timeSinceAnyMessage = 0;
+
   private:
 
     void handleFrame(uint8_t type, uint8_t* data, int len);

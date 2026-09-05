@@ -12,6 +12,7 @@ int readDataStartedAt = 0;
 
 bool paused = false;
 bool muted = false;
+bool receivedMessage = false;
 
 File imgFile;
 
@@ -169,7 +170,7 @@ void SerialReceiver::update() {
           );
         }
       }
-
+      timeSinceAnyMessage = millis();
       state = WAIT_AA;    // reset the receiver
     }
   }
